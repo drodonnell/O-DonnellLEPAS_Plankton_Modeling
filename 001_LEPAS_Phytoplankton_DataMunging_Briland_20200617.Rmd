@@ -1,0 +1,187 @@
+---
+title: "016_LEPAS_Phytoplankton_DataMunging_Briland_20200617"
+author: "DRO"
+date: "6/17/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Load libraries.
+
+library(tidyverse)
+library(RSQLite)
+library(lubridate)
+
+lpdb <- dbConnect(SQLite(), "~/Documents/OSU/Projects/LEPAS_2020.db")
+
+# Load Western Basin data. 
+pp_wb_sp <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/OldVersions/WB_PP_SP_R.csv") 
+pp_wb_es <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/OldVersions/WB_PP_ES_R.csv")
+pp_wb_ls <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/OldVersions/WB_PP_LS_R.csv")
+
+# Load Central Basin data. 
+pp_cb_sp <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/OldVersions/R_CB_PP_spring.csv")
+pp_cb_es <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/OldVersions/R_CB_PP_esum.csv")
+pp_cb_ls <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/OldVersions/R_CB_PP_latesummer.csv")
+
+# Load LEPAS_2020 phytoplankton data.
+pp_new <- dbGetQuery(lpdb, "SELECT
+                            PS.Sample_ID,
+                            PS.Sample_date,
+                            PS.Sample_site,
+                            PS.Project,
+                            PS.Water_body,
+                            PS.Vol_sample_counted_mL,
+                            SI.Depth_m,
+                            SI.Latitude,
+                            SI.Longitude,
+                            PF.Genus_type,
+                            PF.Phyto_biomass,
+                            PF.Phyto_density,
+                            PT.Edible,
+                            PT.Kingdom,
+                            PT.Phylum,
+                            PT.Order1,
+                            PT.Family,
+                            PT.Genus
+                            FROM Phyto_final PF
+                            LEFT JOIN Phyto_sample_info PS ON PF.Sample_ID = PS.Sample_ID
+                            LEFT JOIN Phyto_taxa_groups PT ON PF.Genus_type = PT.Genus_type
+                            LEFT JOIN Sample_inventory SI ON PF.Sample_ID = SI.Sample_ID")
+
+```
+
+
+Reformat dates.
+```{r}
+
+#### Reformat/standardize phytoplankton dates. ####
+refDates <- function(dats){
+    dats2 <- dats %>% 
+      arrange(Year,DOY) %>% 
+      mutate(Year = unlist(lapply(Date.Sampled, function(x) strsplit(x,"/")[[1]][3])),
+             Month = unlist(lapply(Date.Sampled, function(x) strsplit(x,"/")[[1]][1])),
+             Month = ifelse(nchar(Month) < 2, paste0("0",Month), Month),
+             Day = unlist(lapply(Date.Sampled, function(x) strsplit(x,"/")[[1]][2])),
+             Day = ifelse(nchar(Day) < 2, paste0("0",Day), Day),
+             Sample_date = paste(Year,Month,Day,sep="-"),
+             DOY = strftime(as.POSIXct(Sample_date), "%j"),
+             Time = decimal_date(as.Date(Sample_date)),
+             Sample_ID = paste0(Year,Month,Day,"-",Sample.Location)) %>% 
+      mutate(Sample_site = Sample.Location,
+             Sample_site = str_replace_all(Sample_site, " ", "_"),
+             Sample_ID = str_replace_all(Sample_ID, " ", "_")) %>% 
+      select(Sample_ID,Sample_date,Sample_site,Year,Month,Day,DOY,Time)
+}
+
+wb_sp2 <- refDates(pp_wb_sp)
+wb_es2 <- refDates(pp_wb_es)
+wb_ls2 <- refDates(pp_wb_ls)
+cb_sp2 <- refDates(pp_cb_sp)
+cb_es2 <- refDates(pp_cb_es)
+cb_ls2 <- refDates(pp_cb_ls)
+
+```
+
+
+Remove unusable taxonomic categories.
+```{r}
+
+# Microcystis_sm_celled_by_cell and Microcystis_lg_celled_by col start in 2007, so we can't use those.
+pp_new2 <- pp_new %>% 
+  filter(Genus_type != "Microcystis_sm_celled_by_cell",
+         Genus_type != "Microcystis_lg_celled_by_col")
+
+```
+
+
+Format
+```{r}
+
+#### Function to create datasets by season and basin. ####
+ppFormat <- function(pp_new2, pdats){
+  
+  pp_new3 <- pp_new2 %>% 
+    mutate(Year = substr(Sample_date,1,4),
+           Month = substr(Sample_date,6,7),
+           Sample_date = as.character(Sample_date),
+           DOY = strftime(as.POSIXct(Sample_date), "%j"),
+           Time = decimal_date(as.Date(Sample_date))) %>% 
+    filter(Sample_site %in% pdats$Sample_site,
+           Time >= min(pdats$Time) & Time <= max(pdats$Time),
+           DOY >= min(pdats$DOY) & DOY <= max(pdats$DOY),
+           !grepl("B",Sample_ID)) %>% 
+    group_by(Sample_date, Sample_site, Water_body, Genus_type) %>% 
+    mutate(Phyto_biomass = sum(Phyto_biomass, na.rm=T)) %>% 
+    ungroup() %>% 
+    distinct() 
+  
+  pp_new4 <- pp_new %>%
+    mutate(Year = substr(Sample_date,1,4),
+           Sample_date = as.character(Sample_date),
+           DOY = strftime(as.POSIXct(Sample_date), "%j"),
+           Time = decimal_date(as.Date(Sample_date))) %>%
+    filter(Sample_site %in% pdats$Sample_site,
+           Time > max(pp_new3$Time),
+           DOY >= min(pp_new3$DOY) & DOY <= max(pp_new3$DOY),
+           !grepl("B",Sample_ID)) %>%
+    group_by(Sample_date, Sample_site, Water_body, Genus_type) %>%
+    mutate(Phyto_biomass = sum(Phyto_biomass, na.rm=T)) %>%
+    ungroup() %>%
+    distinct()
+  
+  # Summarize Spring.
+  pp_new5 <- bind_rows(pp_new3,pp_new4) %>% 
+    group_by(Sample_ID, Sample_date, Sample_site) %>% 
+    distinct() %>% 
+    summarize(Diatoms = sum(Phyto_biomass[Phylum=="Bacillariophyta"], na.rm=T),
+              Chrysophytes = sum(Phyto_biomass[Phylum=="Ochrophyta"], na.rm=T),
+              Cryptophytes = sum(Phyto_biomass[Phylum=="Cryptophyta"], na.rm=T),
+              Green_algae = sum(Phyto_biomass[Phylum=="Chlorophyta" | Phylum=="Charophyta"], na.rm=T),
+              Cyanobacteria = sum(Phyto_biomass[Phylum=="Cyanobacteria"], na.rm=T),
+              Dinoflagellates = sum(Phyto_biomass[Phylum=="Miozoa"], na.rm=T),
+              Edibles = sum(Phyto_biomass[Edible==TRUE], na.rm=T),
+              Inedibles = sum(Phyto_biomass[Edible==FALSE], na.rm=T)) %>% 
+    ungroup() %>% 
+    mutate(Year = substr(Sample_date,1,4),
+           Month = substr(Sample_date,6,7),
+           Day = substr(Sample_date,9,10),
+           DOY = as.character(strftime(as.POSIXct(Sample_date),"%j")),
+           Time = decimal_date(as.Date(Sample_date))) %>% 
+    left_join(pp_new %>% select(Sample_ID,Water_body,Depth_m,Latitude,Longitude), by="Sample_ID") %>% 
+    select(Sample_ID:Sample_site,Water_body,Depth_m,Latitude,Longitude,Year,Month,Day,DOY,Time,everything()) %>% 
+    distinct() %>% 
+    mutate(TotalPP = rowSums(.[,13:18], na.rm=T),
+           Site_consolidated = ifelse(Water_body!="Western Erie", Sample_site,
+                                      ifelse(Sample_site=="4-996", "3-996",
+                                             ifelse(Sample_site=="7-984", "8-994", Sample_site)))) %>% 
+    arrange(Time)
+}
+
+pp_wb_sp_sum <- ppFormat(pp_new2, wb_sp2)
+pp_wb_es_sum <- ppFormat(pp_new2, wb_es2)
+pp_wb_ls_sum <- ppFormat(pp_new2, wb_ls2)
+
+pp_cb_sp_sum <- ppFormat(pp_new2, cb_sp2) %>% 
+  filter(Sample_site %in% c("1279_20m","1280_15m","1281_10m","1281_5m","1310_5m","1318_20m","1319_15m","1320_10m"))
+pp_cb_es_sum <- ppFormat(pp_new2, cb_es2) %>% 
+  filter(Sample_site %in% c("1279_20m","1280_15m","1281_10m","1281_5m","1310_5m","1318_20m","1319_15m","1320_10m"))
+pp_cb_ls_sum <- ppFormat(pp_new2, cb_ls2)%>% 
+  filter(Sample_site %in% c("1279_20m","1280_15m","1281_10m","1281_5m","1310_5m","1318_20m","1319_15m","1320_10m"))
+
+write.csv(pp_wb_sp_sum, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_Spring_Updated_20201208.csv")
+write.csv(pp_wb_es_sum, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_EarlySummer_Updated_20201208.csv")
+write.csv(pp_wb_ls_sum, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_LateSummer_Updated_20201208.csv")
+write.csv(pp_cb_sp_sum, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_Spring_Updated_20201208.csv")
+write.csv(pp_cb_es_sum, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_EarlySummer_Updated_20201208.csv")
+write.csv(pp_cb_ls_sum, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_LateSummer_Updated_20201208.csv")
+
+```
+
+
+
+
+
