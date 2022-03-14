@@ -1,0 +1,116 @@
+---
+title: "LEPAS_Phyto_AssembleComposits/Phytoplankton/_20201208"
+author: "DRO"
+date: "8/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(cowplot)
+library(patchwork)
+
+knitr::opts_chunk$set(echo = TRUE)
+
+wbsp_m <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_Main_20201208.rds")
+wbes_m <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_Main_20201208.rds")
+wbls_m <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_Main_20201208.rds")
+cbsp_m <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_Main_20201208.rds")
+cbes_m <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_Main_20201208.rds")
+cbls_m <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_Main_20201208.rds")
+wbsp_e <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_inEdibles_20201208.rds")
+wbes_e <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_inEdibles_20201208.rds")
+wbls_e <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_inEdibles_20201208.rds")
+cbsp_e <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_inEdibles_20201208.rds")
+cbes_e <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_inEdibles_20201208.rds")
+cbls_e <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_inEdibles_20201208.rds")
+
+wbsp_am <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_Main_Area_20201208.rds")
+wbes_am <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_Main_Area_20201208.rds")
+wbls_am <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_Main_Area_20201208.rds")
+cbsp_am <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_Main_Area_20201208.rds")
+cbes_am <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_Main_Area_20201208.rds")
+cbls_am <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_Main_Area_20201208.rds")
+wbsp_ae <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_inEdibles_Area_20201208.rds")
+wbes_ae <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_inEdibles_Area_20201208.rds")
+wbls_ae <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_inEdibles_Area_20201208.rds")
+cbsp_ae <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_inEdibles_Area_20201208.rds")
+cbes_ae <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_inEdibles_Area_20201208.rds")
+cbls_ae <- readRDS("~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_inEdibles_Area_20201208.rds")
+
+```
+
+
+Figure 1: Spring
+```{r}
+
+pdf("~/Documents/Manuscripts/O'Donnell_etal_2022a/Figures/LEPAS_Phyto_Composit_Spring_20220127.pdf",
+    height = 16.5, width = 14.5, family="Times")
+
+ggdraw(plot_grid(wbsp_m,cbsp_m,wbsp_am,cbsp_am,wbsp_e,cbsp_e,wbsp_ae,cbsp_ae, nrow=4, 
+                 labels=c("A","B","C","D","E","F","G","H"),label_size=22, label_x=0.29, 
+                 label_y=0.975, align="v"))+
+  draw_plot_label(label="Spring", hjust=-5.8, vjust=-1, size=30)+
+  draw_label(label=expression("Biomass (µg L"^-1*")"), hjust=-1.6, vjust=-12.9, angle=90, size=30)+
+  draw_label(label="Rel. biomass", hjust=-0.6, vjust=-22.1, angle=90, size=30)+
+  draw_label(label=expression("Biomass (mg L"^-1*")"), hjust=1.04, vjust=-12.9, angle=90, size=30)+
+  draw_label(label="Rel. biomass", hjust=3, vjust=-22.1, angle=90, size=30)+
+  draw_label(label="Western", hjust=2.85, vjust=-33.5, size=25)+
+  draw_label(label="Central", hjust=-3.805, vjust=-33.5, size=25)+
+  draw_label(label="Year", hjust=-0.4, vjust=28, size=30)+
+  theme(plot.margin=unit(c(2,1,1,0),"cm"))
+
+dev.off()
+
+```
+
+
+Figure 2: Early summer
+```{r}
+
+pdf("~/Documents/Manuscripts/O'Donnell_etal_2022a/Figures/LEPAS_Phyto_Composit_EarlySummer_20220127.pdf",
+    height = 16.5, width = 14.5, family="Times")
+
+ggdraw(plot_grid(wbes_m,cbes_m,wbes_am,cbes_am,wbes_e,cbes_e,wbes_ae,cbes_ae, nrow=4, 
+                 labels=c("A","B","C","D","E","F","G","H"),label_size=22, label_x=0.29, 
+                 label_y=0.975, align="v"))+
+  draw_plot_label(label="Early summer", hjust=-2.45, vjust=-1, size=30)+
+  draw_label(label=expression("Biomass (µg L"^-1*")"), hjust=-1.6, vjust=-12.9, angle=90, size=30)+
+  draw_label(label="Rel. biomass", hjust=-0.6, vjust=-22.1, angle=90, size=30)+
+  draw_label(label=expression("Biomass (mg L"^-1*")"), hjust=1.04, vjust=-12.9, angle=90, size=30)+
+  draw_label(label="Rel. biomass", hjust=3, vjust=-22.1, angle=90, size=30)+
+  draw_label(label="Western", hjust=2.85, vjust=-33.5, size=25)+
+  draw_label(label="Central", hjust=-3.805, vjust=-33.5, size=25)+
+  draw_label(label="Year", hjust=-0.4, vjust=28, size=30)+
+  theme(plot.margin=unit(c(2,1,1,0),"cm"))
+
+dev.off()
+
+```
+
+
+Figure 3: Late summer
+```{r}
+
+pdf("~/Documents/Manuscripts/O'Donnell_etal_2022a/Figures/LEPAS_Phyto_Composit_LateSummer_20220127.pdf",
+    height = 16.5, width = 14.5, family="Times")
+
+ggdraw(plot_grid(wbls_m,cbls_m,wbls_am,cbls_am,wbls_e,cbls_e,wbls_ae,cbls_ae, nrow=4, 
+                 labels=c("A","B","C","D","E","F","G","H"),label_size=22, label_x=0.29, 
+                 label_y=0.975, align="v"))+
+  draw_plot_label(label="Late summer", hjust=-2.7, vjust=-1, size=30)+
+  draw_label(label=expression("Biomass (µg L"^-1*")"), hjust=-1.6, vjust=-12.9, angle=90, size=30)+
+  draw_label(label="Rel. biomass", hjust=-0.6, vjust=-22.1, angle=90, size=30)+
+  draw_label(label=expression("Biomass (mg L"^-1*")"), hjust=1.04, vjust=-12.9, angle=90, size=30)+
+  draw_label(label="Rel. biomass", hjust=3, vjust=-22.1, angle=90, size=30)+
+  draw_label(label="Western", hjust=2.85, vjust=-33.5, size=25)+
+  draw_label(label="Central", hjust=-3.805, vjust=-33.5, size=25)+
+  draw_label(label="Year", hjust=-0.4, vjust=28, size=30)+
+  theme(plot.margin=unit(c(2,1,1,0),"cm"))
+
+dev.off()
+
+```
+
+

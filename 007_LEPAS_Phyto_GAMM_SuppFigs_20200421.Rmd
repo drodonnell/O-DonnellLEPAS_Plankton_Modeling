@@ -1,0 +1,222 @@
+---
+title: "015_LEPAS_Phyto_GAMM_Figures_MasterScript_20200312"
+author: "DRO"
+date: "3/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(mgcv)
+library(scales)
+library(MuMIn)
+library(car)
+library(ggpubr)
+library(lubridate)
+
+# Western Basin
+wb_sp <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2021b/Data/LEPAS_Phytoplankton_WesternB_Spring_Updated_20201208.csv")
+wb_es <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2021b/Data/LEPAS_Phytoplankton_WesternB_EarlySummer_Updated_20201208.csv")
+wb_ls <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2021b/Data/LEPAS_Phytoplankton_WesternB_LateSummer_Updated_20201208.csv")
+
+# Central Basin
+cb_sp <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2021b/Data/LEPAS_Phytoplankton_CentralB_Spring_Updated_20201208.csv")
+cb_es <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2021b/Data/LEPAS_Phytoplankton_CentralB_EarlySummer_Updated_20201208.csv")
+cb_ls <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2021b/Data/LEPAS_Phytoplankton_CentralB_LateSummer_Updated_20201208.csv")
+
+```
+
+
+Gaussian GAMM fits
+```{r}
+
+taxa <- c("Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates","Edibles","Inedibles","TotalPP")
+cols <- c("darkgoldenrod3","gold2","gray48","forestgreen","darkcyan","saddlebrown","blue","darkviolet","chartreuse4")
+mains <- c("Diatoms","Chrysophytes","Cryptophytes","Green algae","Cyanobacteria","Dinoflagellates","Edible algae","Inedible algae","Total phytoplankton")
+
+tax_cols <- list()
+for(i in 1:9){
+  tax_cols[[i]] <- list(dat=list(taxa[i], cols[i], mains[i]))
+}
+
+plotFunc <- function(X){
+  
+  taxon <- X$dat[[1]]
+  clr <- X$dat[[2]]
+  taxon <- dats[,taxon]
+
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date)) %>% 
+      select(Sample_ID:DOY,Time,everything())
+  }
+  
+  fd <- fixDats(dats,taxon) %>% mutate(taxon = taxon+min(taxon[taxon > 0]))
+  
+  # Subset out nonzero data.
+  # If enough data to fit logistic, use only nonzero data. If not, use y+min(y[y>0]), which will be logged later.
+  if(length(fd$PresAbs[fd$PresAbs==0]) >= 25){
+    nz <- fd %>% 
+      mutate(taxon = taxon,
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      filter(taxon > min(taxon[taxon > 0]))
+  }
+  else{
+    nz <- fd %>% 
+      mutate(taxon = taxon,
+             Site_consolidated = as.factor(Site_consolidated)) 
+  }
+
+  points <- nz %>% 
+    select(x=Time, y=taxon, Site_consolidated)
+  
+  # Model
+  mod <- gam(log(taxon) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz)
+
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  gplot <- plot(mod, n=nrow(nz))
+  invisible(dev.off())
+  
+  # Data from plot.gam() objects above, needed for ggplots.
+  PlotFit <- data.frame(x=gplot[[1]]$x, y=gplot[[1]]$fit, se=gplot[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod))),
+           y.lwr95 = exp(y-1.96*se+mean(predict(mod))),
+           y.uppr95 = exp(y+1.96*se+mean(predict(mod))))
+
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  plt <- ggplot(PlotFit, mapping=aes(x=x, y=y.ts))+
+    geom_ribbon(mapping=aes(x=x, ymin=y.lwr95, ymax=y.uppr95), fill=clr, col=clr, 
+                size=0.00, alpha=0.2)+
+    geom_path(PlotFit, mapping=aes(x=x, y=y.ts), col=clr, size=0.9)+
+    geom_point(points, mapping=aes(x=x, y=y), color=clr, alpha=0.35)+
+    theme_classic()+
+    xlim(1995,2016)+
+    labs(x="", y="")+
+    ggtitle(X$dat[[3]])+
+    scale_y_log10(breaks=trans_breaks("log10", function(x) 10^x, n=5),
+                  labels=trans_format("log10", math_format(10^.x)), 
+                  limits=c(1e-6,1e5))+
+    # annotation_logticks()+
+    theme(axis.title = element_text(size = 22), 
+          axis.text = element_text(size = 22),
+          plot.margin = unit(c(-0.5,0.28,-0.5,0.2), "cm"),
+          plot.title = element_text(size=20, hjust=0.5, vjust=-5),
+          text = element_text(family="Times", size=0.9),
+          panel.grid.major = element_line(colour = "gray", size = 0.2),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank())
+  invisible(dev.off())
+  
+  plt
+  
+}
+
+dats <- cb_es
+plot_list <- lapply(tax_cols, plotFunc)
+
+pdf("~/Documents/Manuscripts/O'Donnell_etal_2021b/Figures/LEPAS_Phyto_CBES_AllTaxa_Composit_GAMM_20200728.pdf", 
+    height = 10, width = 15, family="Times")
+
+ggarrange(plotlist=plot_list, widths=c(9,9,9), heights=c(5,5,5))
+
+dev.off()
+
+```
+
+
+
+Binomial/logistic GAMM fits.
+```{r}
+
+X <- tax_cols[[1]]
+
+plotFunc2 <- function(X){
+  
+  taxon <- X$dat[[1]]
+  clr <- X$dat[[2]]
+  taxon <- dat[,taxon]
+
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date)) %>% 
+      select(Sample_ID:DOY,Time,everything())
+  }
+  
+  # Subset out nonzero data.
+  pa <- fixDats(dat,taxon) %>% 
+    mutate(taxon = taxon,
+           Site_consolidated = as.factor(Site_consolidated))
+  
+  points <- data.frame(Time = pa$Time,
+                       y = pa$PresAbs,
+                       Site_consolidated = pa$Site_consolidated)
+  
+  # Three GAMMs for three seasons.
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  if(length(pa$PresAbs[pa$PresAbs==0]) >= 25){
+    mod <- gam(PresAbs ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), family=binomial("logit"), data=pa)
+    gplot <- plot(mod)
+    PlotFit <- data.frame(x=gplot[[1]]$x, y=gplot[[1]]$fit, se=gplot[[1]]$se) %>% 
+      mutate(y.ts = exp(y+mean(predict(mod)))/(1+exp(y+mean(predict(mod)))),
+             y.lwr95 = exp(y-1.96*se+mean(predict(mod)))/(1+exp(y-1.96*se+mean(predict(mod)))),
+             y.uppr95 = exp(y+1.96*se+mean(predict(mod)))/(1+exp(y+1.96*se+mean(predict(mod)))))
+    size <- 0.9
+  }
+  else{
+    PlotFit <- data.frame(x=1995:2016, y=rep(0,22), y.ts=rep(0,22), 
+                          y.lwr95=rep(0,22), y.uppr95=rep(0,22))
+    size <- 0.00
+  }
+  
+  invisible(dev.off())
+
+  # Plot with 3 GAMM curves.
+  ggplot()+
+    xlim(1995,2016)+
+    ylim(-0.2,1.5)+
+    theme_classic()+
+    geom_ribbon(PlotFit, mapping=aes(x=x, ymin=y.lwr95, ymax=y.uppr95), fill=clr, col=clr,
+                size=0.00, alpha=0.2)+
+    geom_point(points, mapping=aes(x=Time, y=y), color=clr, alpha=0.35,
+               position=position_jitter(width=0.25, height=0.02))+
+    geom_path(PlotFit, mapping=aes(x=x, y=y.ts), col=clr, size=size)+
+    labs(x="", y=expression(""), size=0.9)+
+    ggtitle(X$dat[[3]])+
+    theme(axis.title = element_text(size=26), 
+          axis.text = element_text(size=26),
+          axis.title.y = element_text(vjust = 4), 
+          text = element_text(family="Times", size=0.9),
+          plot.margin=unit(c(0.1,0.6,0.1,0.65), "cm"),
+          plot.title = element_text(size=20, hjust=0.5, vjust=-1))+
+    scale_y_continuous(breaks=c(0,1))
+  
+}
+
+dat <- cb_sp
+plot_list <- lapply(tax_cols, plotFunc2)
+
+pdf("~/Documents/OSU/Projects/LEPAS_Briland/Figures/SuppFigs/Phytoplankton/LEPAS_Phyto_CBSP_AllTaxa_Composit_Logistic_GAMM_20200728.pdf", 
+    height = 10, width = 15, family="Times")
+
+ggarrange(plotlist=plot_list, widths=c(9,9,9), heights=c(5,5,5))
+
+dev.off()
+
+```
+

@@ -1,0 +1,256 @@
+---
+title: "00X_LEPAS_Phytos_Munging_for_Multivar_20200603"
+author: "DRO"
+date: "6/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+# Require packages.
+library(tidyverse)
+library(RSQLite)
+library(vegan)
+library(lubridate)
+
+# Connect to LEPAS_2020.db.
+lpdb <- dbConnect(SQLite(), "~/Documents/OSU/Projects/LEPAS_2020.db")
+
+#### We need to import the phytoplankton datasets to make sure the seasons/dates in the zoop data match. ####
+wb_sp <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_Spring_Updated_20200717.csv")
+wb_es <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_EarlySummer_Updated_20200717.csv")
+wb_ls <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_LateSummer_Updated_20200717.csv")
+cb_sp <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_Spring_Updated_20200717.csv")
+cb_es <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_EarlySummer_Updated_20200717.csv")
+cb_ls <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_LateSummer_Updated_20200717.csv") 
+
+#### Load LEPAS_2020 zooplankton data. ####
+pp_new <- dbGetQuery(lpdb, "SELECT
+                            PS.Sample_ID,
+                            PS.Sample_date,
+                            PS.Sample_site,
+                            PS.Project,
+                            PS.Water_body,
+                            SI.Depth_m,
+                            SI.Latitude,
+                            SI.Longitude,
+                            PF.Genus_type,
+                            PF.Phyto_biomass,
+                            PF.Phyto_density,
+                            PT.Edible,
+                            PT.Kingdom,
+                            PT.Phylum,
+                            PT.Order1,
+                            PT.Family,
+                            PT.Genus
+                            FROM Phyto_final PF
+                            LEFT JOIN Phyto_sample_info PS ON PF.Sample_ID = PS.Sample_ID
+                            LEFT JOIN Phyto_taxa_groups PT ON PF.Genus_type = PT.Genus_type
+                            LEFT JOIN Sample_inventory SI ON PF.Sample_ID = SI.Sample_ID")
+
+# Consolidate defunct sites with nearby, active ones.
+sC <- function(x){
+  return(
+    x %>% 
+      mutate(Sample_site = as.character(Sample_site),
+             Site_consolidated = ifelse(Sample_site=="4-996", "3-996",
+                                        ifelse(Sample_site=="7-984", "8-994", Sample_site)))
+  )
+}
+
+pp_newB <- sC(pp_new) %>% 
+  mutate(DOY = strftime(as.POSIXct(Sample_date), "%j"),
+         Time = decimal_date(as.Date(Sample_date)))
+
+```
+
+
+Format 
+```{r}
+
+#### Function to create datasets by season and basin. ####
+ppFormat <- function(pp_newB, pdats){
+  
+  pp_new2 <- pp_newB %>% 
+    mutate(Year = substr(Sample_date,1,4),
+           Month = substr(Sample_date,6,7),
+           Sample_date = as.character(Sample_date),
+           Day = substr(Sample_date, 9,10),
+           DOY = strftime(as.POSIXct(Sample_date), "%j"),
+           Time = decimal_date(as.Date(Sample_date))) %>% 
+    filter(Site_consolidated %in% pdats$Site_consolidated,
+           Time >= min(pdats$Time) & Time <= max(pdats$Time),
+           DOY >= min(pdats$DOY) & DOY <= max(pdats$DOY),
+           !grepl("B",Sample_ID)) %>% 
+    group_by(Sample_date, Site_consolidated, Water_body, Genus_type) %>% 
+    mutate(Phyto_biomass = sum(Phyto_biomass, na.rm=T),) %>% 
+    ungroup() %>% 
+    distinct() 
+  
+  attrs <- pp_newB %>% 
+    filter(Site_consolidated %in% pdats$Site_consolidated,
+           Time >= min(pdats$Time) & Time <= max(pdats$Time),
+           DOY >= min(pdats$DOY) & DOY <= max(pdats$DOY),
+           !grepl("B",Sample_ID)) %>%  
+    select(Sample_ID,Depth_m,Latitude,Longitude) %>% 
+    distinct()
+  
+  # Summarize Spring.
+  pp_new3 <- pp_new2 %>% 
+    left_join(attrs, by="Sample_ID") %>% 
+    select(Sample_ID:Sample_site,Site_consolidated,Water_body,Depth_m=Depth_m.x,Latitude=Latitude.x,
+           Longitude=Longitude.x,Year,Month,Day,DOY,everything(), -(Depth_m.y:Longitude.y)) %>% 
+    distinct()
+  
+  pp_new3 %>% 
+    filter(Genus_type != "Microcystis_sm_celled_by_cell",
+           Genus_type != "Microcystis_lg_celled_by_col")
+}
+
+pp_wb_sp_sum <- ppFormat(pp_newB, wb_sp) %>% 
+  mutate(Water_body = "Western Erie",
+         Season = "Spring")
+pp_wb_es_sum <- ppFormat(pp_newB, wb_es) %>% 
+  mutate(Water_body = "Western Erie",
+         Season = "Early summer")
+pp_wb_ls_sum <- ppFormat(pp_newB, wb_ls) %>% 
+  mutate(Water_body = "Western Erie",
+         Season = "Late summer")
+pp_cb_sp_sum <- ppFormat(pp_newB, cb_sp) %>% 
+  mutate(Water_body = "Central Erie",
+         Season = "Spring")
+pp_cb_es_sum <- ppFormat(pp_newB, cb_es) %>% 
+  mutate(Water_body = "Central Erie",
+         Season = "Early summer")
+pp_cb_ls_sum <- ppFormat(pp_newB, cb_ls) %>% 
+  mutate(Water_body = "Central Erie",
+         Season = "Late summer")
+
+```
+
+
+
+```{r}
+
+pp2 <- bind_rows(pp_wb_sp_sum,pp_wb_es_sum,pp_wb_ls_sum,pp_cb_sp_sum,pp_cb_es_sum,pp_cb_ls_sum) %>% 
+  select(Sample_ID:Sample_site,Site_consolidated,Season,Year:Project,Water_body,Genus_type,Phyto_biomass) %>% 
+  distinct() %>% 
+  spread(Genus_type, Phyto_biomass) %>% 
+  mutate("Cyanophyte filament" = Cyanophyte_Filament_greater_3um+Cyanophyte_Filament_less_3um,
+         "Microcystis" = Microcystis_lg_celled_by_cell+Microcystis_sm_celled_by_col) %>% 
+  rename("Centric diatom" = Centric_Diatom,
+         "Pennate diatom" = Pennate_Diatom,
+         "Solitary chlorophyte" = Solitary_Green,
+         "Spiny chlorophyte" = Spiny_Green,
+         "Chlorophyte filament" = Chlorophyte_Filament,
+         "Col. chlorophyte w sheath" = Col_Chlorophyte_w_sheath,
+         "Col. chlorophyte wo sheath" = Col_Chlorophyte_wo_sheath,
+         "Coccoid cyanophyte" = Cyanophyte_coccoid) %>% 
+  select(Sample_ID:"Coccoid cyanophyte","Cyanophyte filament",Cyclotella:Micractinium,Microcystis,Navicula:Synedra) 
+
+unique(pp2$Sample_site)
+
+```
+
+
+Method 1: check if present in ≥5% of samples.
+```{r}
+
+n_attr <- 11
+n_taxa <- length(colnames(pp2)[12:ncol(pp2)]) # 76
+
+perc_samples <- data.frame(nrow=n_taxa, ncol=2)
+for(j in 1:n_taxa){
+  perc_samples[j,] <- c(names(pp2[j+n_attr]), length(pp2[j+n_attr][pp2[j+n_attr]>0])/nrow(pp2))
+}
+colnames(perc_samples) <- c("Taxon", "Prop_samples")
+
+perc_samples$Prop_samples <- as.numeric(perc_samples$Prop_samples)
+
+include <- perc_samples %>% 
+  filter(Prop_samples >= 0.05) %>% 
+  mutate(Taxon = replace(Taxon, Taxon=="Centric diatom", "Centric_diatom"),
+         Taxon = replace(Taxon, Taxon=="Pennate diatom", "Pennate_diatom"))
+
+```
+
+
+Method 2: check if makes up ≥5% of at least one sample.
+```{r}
+# 
+# # How many all-zero rows are there?
+# pp2[12:ncol(pp2)] %>% 
+#   mutate(sums = rowSums(.)) %>% 
+#   filter(sums > 0) # Only 3 rows.
+# 
+# # How many all-zero columns are there?
+# sums <- unlist(apply(pp2[12:ncol(pp2)], 2, function(x) sum(x, na.rm=T)))
+# sums[which(sums==0)]
+# # Aphanocapsa_col and Dimorphococcus are all zeros.
+# 
+# pp3 <- pp2 %>% 
+#   filter(rowSums(.[12:ncol(.)]) > 0) 
+# 
+# pp_rel <- pp3 %>% 
+#   select(12:ncol(.)) %>% 
+#   decostand(., method="total") %>%
+#   mutate(Sample_ID = pp3$Sample_ID) %>% 
+#   select(Sample_ID, everything())
+# 
+# five_percent <- data.frame(nrow=(ncol(pp_rel[,-1])), ncol=2)
+# for(j in 1:(ncol(pp_rel[,-1]))){
+#   five_percent[j,] <- c(colnames(pp_rel[,-1])[j], ifelse(any(pp_rel[,-1][,j] >= 0.05), 1, 0))
+# }
+# colnames(five_percent) <- c("Taxon", "FiveP_rel_abund")
+# 
+# five_percent$FiveP_rel_abund <- as.numeric(five_percent$FiveP_rel_abund)
+# 
+# include2 <- five_percent %>% 
+#   filter(FiveP_rel_abund == 1)
+
+```
+
+
+Compare methods
+```{r}
+
+# length(which(include$Taxon %in% include2$Taxon))
+# length(which(include2$Taxon %in% include$Taxon))
+# include[which(!include$Taxon %in% include2$Taxon),]
+# include2[which(!include2$Taxon %in% include$Taxon),]
+# 
+# keep_toss <- bind_cols(perc_samples,five_percent) %>% 
+#   select(-Taxon1) %>% 
+#   mutate(In_both = ifelse((Prop_samples>=0.05&FiveP_rel_abund==1)|(Prop_samples<0.05&FiveP_rel_abund==0), 1, 0))
+# 
+# keep_toss[keep_toss$In_both==0,]
+
+```
+
+
+Go with method 1.
+```{r}
+
+colnames(pp2)[which(colnames(pp2)=="Centric diatom")] <- "Centric_diatom"
+colnames(pp2)[which(colnames(pp2)=="Pennate diatom")] <- "Pennate_diatom"
+
+pp4 <- pp2 %>% 
+  select(1:11, which(colnames(.) %in% include$Taxon)) %>% 
+  mutate(Centric_diatom = Centric_diatom + Cyclotella + Stephanodiscus,
+         Pennate_diatom = Pennate_diatom + Navicula) %>% 
+  select(-Cyclotella,-Stephanodiscus,-Navicula) %>% 
+  rename("Centric diatom" = Centric_diatom,
+         "Pennate diatom" = Pennate_diatom)
+
+write.csv(pp4, "~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytos_Filtered_for_Multivar_20200729.csv")
+
+```
+
+
+
+
+
+
+

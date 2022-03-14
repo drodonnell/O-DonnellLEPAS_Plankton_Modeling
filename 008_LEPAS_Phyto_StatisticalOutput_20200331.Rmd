@@ -1,0 +1,154 @@
+---
+title: "024_LEPAS_Phyto_StatisticalOutput_20200330"
+author: "DRO"
+date: "3/30/2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(mgcv)
+library(scales)
+library(MuMIn)
+library(lme4)
+library(nlme)
+library(car)
+library(lubridate)
+
+# Western Basin
+wb_sp <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_Spring_Updated_20200625.csv")
+wb_es <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_EarlySummer_Updated_20200625.csv")
+wb_ls <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_WesternB_LateSummer_Updated_20200625.csv")
+
+# Central Basin
+cb_sp <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_Spring_Updated_20200625.csv")
+cb_es <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_EarlySummer_Updated_20200625.csv")
+cb_ls <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_Phytoplankton_CentralB_LateSummer_Updated_20200625.csv")
+
+cb_ls2 <- cb_ls %>% 
+  mutate(DOY=as.numeric(DOY),
+         Year = as.numeric(Year),
+         Site_consolidated = as.factor(Site_consolidated)) %>% 
+  filter(Diatoms > 0)
+
+acf(resid(model))
+
+model <- gamm(log(Diatoms) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated, bs="re"), correlation = corARMA(form=~1|Year, p=1), data=cb_ls2)
+model2 <- gamm(log(Diatoms) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated, bs="re"), correlation = corARMA(form=~1|Year, p=2), data=cb_ls2)
+model3 <- gamm(log(Diatoms) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated, bs="re"), correlation = corARMA(form=~1|Year, p=3), data=cb_ls2)
+model4 <- gamm(log(Diatoms) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated, bs="re"), correlation = corARMA(form=~1|Year, p=4), data=cb_ls2)
+model5 <- gamm(log(Diatoms) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated, bs="re"), correlation = corARMA(form=~1|Year, p=5), data=cb_ls2)
+
+AICc(model,model2,model3,model4,model5)
+
+plot(model5$gam, residuals=T)
+plot(model$gam, residuals=T)
+
+summary(model5$gam)
+acf(resid(model5$gam))
+
+res <- resid(model$lme, type = "normalized")
+
+```
+
+
+Gaussian GAMM model
+```{r}
+
+modOut <- function(dats,taxon){
+  
+  taxon <- dats[,taxon]
+  
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date)) %>% 
+      select(Sample_ID:DOY,Time,everything())
+  }
+
+  dats2 <- fixDats(dats,taxon) %>% 
+    mutate(taxon = taxon,
+           Site_consolidated = as.factor(Site_consolidated)) %>% 
+    mutate_at(.vars=vars(Year:DOY),
+              .funs=list(~as.numeric(as.character(.)))) %>% 
+    mutate(taxon = taxon+min(taxon[taxon > 0]))
+  
+  if(length(dats2$PresAbs[dats2$PresAbs==0]) >= 25){dats3 <- dats2 %>% filter(taxon > min(taxon[taxon > 0]))}
+  else{dats3 <- dats2}
+  
+  model <- gamm(log(taxon) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), correlation = corARMA(form=~1|Year, p=3), data=dats3)
+  
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  fit <- c(plot(model$gam, n=length(predict(model$gam)))[[1]]$fit)
+  int.ts <- mean(exp(fit+mean(predict(model))))
+  invisible(dev.off())
+
+  summ <- summary(model$gam)
+  int <- paste0(int.ts," (",int.ts-(1.96*summ$se[[1]]),", ",int.ts+(1.96*summ$se[[1]]),")")
+  
+  list(int, summ)
+}
+
+modOut(cb_ls,"Diatoms")
+
+```
+
+
+
+Binomial/logistic GAMM model
+```{r}
+
+modOut2 <- function(dats,taxon){
+  
+  taxon <- dats[,taxon]
+  
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date),
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      select(Sample_ID:DOY,Time,everything())
+  }
+  
+  dats2 <- fixDats(dats,taxon) %>% mutate(taxon = taxon)
+
+  model <- gam(PresAbs ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), family=binomial("logit"), data=dats2)
+  
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  fit <- c(plot(model, n=length(predict(model)))[[1]]$fit)
+  int.ts <- mean(exp(fit+mean(predict(model)))/(1+exp(fit+mean(predict(model)))))
+  invisible(dev.off())
+
+  summ <- summary(model)
+  int <- paste0(int.ts," (",int.ts-(1.96*summ$se[[1]]),", ",int.ts+(1.96*summ$se[[1]]),")")
+  
+  list(int, summ)
+}
+
+modOut2(cb_ls,"TotalPP")
+
+
+
+dats <- cb_ls
+taxon <- "Inedibles"
+
+nrow(dats2[dats2$PresAbs==0,])
+
+```
+
+
+
+
+

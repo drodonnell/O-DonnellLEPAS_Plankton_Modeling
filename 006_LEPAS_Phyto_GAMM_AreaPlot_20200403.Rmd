@@ -1,0 +1,503 @@
+---
+title: "028_LEPAS_Phyto_GAMM_AreaPlot_20200403"
+author: "DRO"
+date: "4/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(mgcv)
+library(scales)
+library(MuMIn)
+library(car)
+library(lubridate)
+library(GGally)
+library(metR)
+library(cowplot)
+
+# Western Basin
+wb_sp <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_WesternB_Spring_Updated_20201208.csv")
+wb_es <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_WesternB_EarlySummer_Updated_20201208.csv")
+wb_ls <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_WesternB_LateSummer_Updated_20201208.csv")
+
+# Central Basin
+cb_sp <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_CentralB_Spring_Updated_20201208.csv")
+cb_es <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_CentralB_EarlySummer_Updated_20201208.csv")
+cb_ls <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_CentralB_LateSummer_Updated_20201208.csv")
+
+```
+
+
+Area plots of relative abundance.
+```{r, warning=F}
+
+plotFunc <- function(dat,taxon1,taxon2,taxon3,taxon4,taxon5,taxon6){
+  
+  taxon1 <- dat[,taxon1]
+  taxon2 <- dat[,taxon2]
+  taxon3 <- dat[,taxon3]
+  taxon4 <- dat[,taxon4]
+  taxon5 <- dat[,taxon5]
+  taxon6 <- dat[,taxon6]
+
+  fixDats <- function(dat,tax){
+    dat %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date),
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date)) %>% 
+      select(Sample_ID:DOY,Time,everything()) %>% 
+      filter(Year < 2016)
+  }
+  
+  fd1 <- fixDats(dat,taxon1) %>% mutate(taxon1 = taxon1+min(taxon1[taxon1 > 0]))
+  fd2 <- fixDats(dat,taxon2) %>% mutate(taxon2 = taxon2+min(taxon2[taxon2 > 0]))
+  fd3 <- fixDats(dat,taxon3) %>% mutate(taxon3 = taxon3+min(taxon3[taxon3 > 0]))
+  fd4 <- fixDats(dat,taxon4) %>% mutate(taxon4 = taxon4+min(taxon4[taxon4 > 0]))
+  fd5 <- fixDats(dat,taxon5) %>% mutate(taxon5 = taxon5+min(taxon5[taxon5 > 0]))
+  fd6 <- fixDats(dat,taxon6) %>% mutate(taxon6 = taxon6+min(taxon6[taxon6 > 0]))
+  
+  # If enough data to fit logistic, use only nonzero data. If not, use y+min(y[y>0]), which will be logged later.
+  if(length(fd1$PresAbs[fd1$PresAbs==0]) >= 25){nz1 <- fd1 %>% filter(taxon1 > min(taxon1[taxon1 > 0]))}
+  else{nz1 <- fd1}
+  if(length(fd2$PresAbs[fd2$PresAbs==0]) >= 25){nz2 <- fd2 %>% filter(taxon2 > min(taxon2[taxon2 > 0]))}
+  else{nz2 <- fd2}
+  if(length(fd3$PresAbs[fd3$PresAbs==0]) >= 25){nz3 <- fd3 %>% filter(taxon3 > min(taxon3[taxon3 > 0]))}
+  else{nz3 <- fd3}
+  if(length(fd4$PresAbs[fd4$PresAbs==0]) >= 25){nz4 <- fd4 %>% filter(taxon4 > min(taxon4[taxon4 > 0]))}
+  else{nz4 <- fd4}
+  if(length(fd5$PresAbs[fd5$PresAbs==0]) >= 25){nz5 <- fd5 %>% filter(taxon5 > min(taxon5[taxon5 > 0]))}
+  else{nz5 <- fd5}
+  if(length(fd6$PresAbs[fd6$PresAbs==0]) >= 25){nz6 <- fd6 %>% filter(taxon6 > min(taxon6[taxon6 > 0]))}
+  else{nz6 <- fd6}
+  
+  # Insufficient df for s(DOY) in cb_sp Leptodora model. 
+  mod1 <- gam(log(taxon1) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz1)
+  mod2 <- gam(log(taxon2) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz2)
+  mod3 <- gam(log(taxon3) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz3)
+  mod4 <- gam(log(taxon4) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz4)
+  mod5 <- gam(log(taxon5) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz5)
+  mod6 <- gam(log(taxon6) ~ s(Time,k=10)+ s(Site_consolidated,bs="re"), data=nz6)
+
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  gplot1 <- plot(mod1, n=1000)
+  gplot2 <- plot(mod2, n=1000)
+  gplot3 <- plot(mod3, n=1000)
+  gplot4 <- plot(mod4, n=1000)
+  gplot5 <- plot(mod5, n=1000)
+  gplot6 <- plot(mod6, n=1000)
+  invisible(dev.off())
+    
+  # Data from plot.gam() objects above, needed for ggplots.
+  PlotFit1 <- data.frame(x=as.factor(gplot1[[1]]$x), y=gplot1[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod1))),
+           Taxon = "Diatoms") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit2 <- data.frame(x=as.factor(gplot2[[1]]$x), y=gplot2[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod2))),
+           Taxon = "Chrysophytes") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit3 <- data.frame(x=as.factor(gplot3[[1]]$x), y=gplot3[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod3))),
+           Taxon = "Cryptophytes") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit4 <- data.frame(x=as.factor(gplot4[[1]]$x), y=gplot4[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod4))),
+           Taxon = "Green algae") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit5 <- data.frame(x=as.factor(gplot5[[1]]$x), y=gplot5[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod5))),
+           Taxon = "Cyanobacteria") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit6 <- data.frame(x=as.factor(gplot6[[1]]$x), y=gplot6[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod6))),
+           Taxon = "Dinoflagellates") %>% 
+    select(x,y.ts,Taxon)
+  
+  taxa <- as.character(c("Diatoms","Chrysophytes","Cryptophytes","Green algae","Cyanobacteria","Dinoflagellates"))
+  
+  PlotFits <- bind_rows(PlotFit1,PlotFit2,PlotFit3,PlotFit4,PlotFit5,PlotFit6)
+  
+  pfList <- split(PlotFits, PlotFits$x)
+  pfList2 <- list()
+  nList <- c()
+  for(i in 1:length(pfList)){
+    pfList[[i]]$y.ts <- as.character(pfList[[i]]$y.ts)
+    y.ts <- as.character(rep("0", (6-nrow(pfList[[i]]))))
+    x <- as.character(rep(pfList[[i]]$x[1],(6-nrow(pfList[[i]]))))
+    Taxon <- as.character(pfList[[i]]$Taxon)
+    if(nrow(pfList[[i]]) == 6){
+      pfList2[[i]] <- pfList[[i]]
+    } 
+    else{
+          pfList2[[i]] <- pfList[[i]] %>% 
+            mutate_if(is.factor, as.character) %>% 
+            bind_rows(data.frame(x=x,
+                                 y.ts=y.ts,
+                                 Taxon=taxa[which(!taxa %in% pfList[[i]]$Taxon)][1:(6-nrow(pfList[[i]]))]))
+    }
+    nList[i] <- nrow(pfList2[[i]])
+  }
+  
+  PlotFits2 <- do.call(rbind, pfList2) %>% 
+    mutate(y.ts = as.numeric(y.ts),
+           x = round(as.numeric(as.character((x))))) %>% 
+    group_by(x, Taxon) %>%
+    summarise(n = sum(y.ts)) %>%
+    mutate(y.rel = n/sum(n),
+           Taxon = factor(Taxon, levels=taxa)) 
+
+  ggplot(PlotFits2, aes(x=as.numeric(as.character(x)), y=y.rel, fill=Taxon))+
+    xlim(1995,2015)+
+    theme_cowplot()+
+    geom_area(position="stack")+
+    scale_fill_manual(values=c("darkorange1","black","goldenrod1","#4daf4a","#377eb8","#a65628"))+
+    #"#ff7f00"
+    #"#e41a1c"
+    labs(x="", y="")+
+    theme(axis.title = element_text(size=26), 
+          axis.text = element_text(size=26),
+          axis.line = element_line(size=0.7),
+          # Set margins to c(0,0,0,2) for wb, c(0,1,0,1) for cb.
+          plot.margin=unit(c(0,0,0,2), unit="cm"),
+          text = element_text(family="Times", size=0.9),
+          legend.position = "none")+
+    geom_hline(yintercept=1, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.75, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.5, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.25, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=1995, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2000, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2005, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2010, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2015, size = 0.2, alpha=0.25)
+    
+} 
+
+
+saveRDS(plotFunc(wb_sp, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_Main_Area_20201208.rds")
+saveRDS(plotFunc(wb_es, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_Main_Area_20201208.rds")
+saveRDS(plotFunc(wb_ls, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_Main_Area_20201208.rds")
+saveRDS(plotFunc(cb_sp, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_Main_Area_20201208.rds")
+saveRDS(plotFunc(cb_es, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_Main_Area_20201208.rds")
+saveRDS(plotFunc(cb_ls, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_Main_Area_20201208.rds")
+
+```
+
+
+
+```{r, warning=F}
+
+plotFunc2 <- function(dat,taxon1,taxon2){
+  
+  taxon1 <- dat[,taxon1]
+  taxon2 <- dat[,taxon2]
+
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date),
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      select(Sample_ID:DOY,Time,everything()) %>% 
+      filter(Year < 2016)
+  }
+  
+  # Subset out nonzero data.
+  nz1 <- fixDats(dat,taxon1) %>% mutate(taxon1 = taxon1) %>% filter(taxon1 > 0)
+  nz2 <- fixDats(dat,taxon2) %>% mutate(taxon2 = taxon2) %>% filter(taxon2 > 0)
+  
+  # Six GAMMs for six taxa. 
+  mod1 <- gam(log(taxon1) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz1)
+  mod2 <- gam(log(taxon2) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz2)
+
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  gplot1 <- plot(mod1, n=1000)
+  gplot2 <- plot(mod2, n=1000)
+  invisible(dev.off())
+    
+  # Data from plot.gam() objects above, needed for ggplots.
+  PlotFit1 <- data.frame(x=as.factor(gplot1[[1]]$x), y=gplot1[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod1))),
+           Taxon = "Edibles") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit2 <- data.frame(x=as.factor(gplot2[[1]]$x), y=gplot2[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod2))),
+           Taxon = "Inedibles") %>% 
+    select(x,y.ts,Taxon)
+  
+  taxa <- as.character(c("Edibles","Inedibles"))
+  
+  PlotFits <- bind_rows(PlotFit1,PlotFit2)
+  
+  pfList <- split(PlotFits, PlotFits$x)
+  pfList2 <- list()
+  nList <- c()
+  for(i in 1:length(pfList)){
+    pfList[[i]]$y.ts <- as.character(pfList[[i]]$y.ts)
+    y.ts <- as.character(rep("0", (2-nrow(pfList[[i]]))))
+    x <- as.character(rep(pfList[[i]]$x[1],(2-nrow(pfList[[i]]))))
+    Taxon <- as.character(pfList[[i]]$Taxon)
+    if(nrow(pfList[[i]]) == 2){
+      pfList2[[i]] <- pfList[[i]]
+    } 
+    else{
+          pfList2[[i]] <- pfList[[i]] %>% 
+            mutate_if(is.factor, as.character) %>% 
+            bind_rows(data.frame(x=x,
+                                 y.ts=y.ts,
+                                 Taxon=taxa[which(!taxa %in% pfList[[i]]$Taxon)][1:(2-nrow(pfList[[i]]))]))
+    }
+    nList[i] <- nrow(pfList2[[i]])
+  }
+  
+  PlotFits2 <- do.call(rbind, pfList2) %>% 
+    mutate(y.ts = as.numeric(y.ts),
+           x = round(as.numeric(as.character((x))))) %>% 
+    group_by(x, Taxon) %>%
+    summarise(n = sum(y.ts)) %>%
+    mutate(y.rel = n/sum(n),
+           Taxon = factor(Taxon, levels=taxa)) 
+
+  ggplot(PlotFits2, aes(x=as.numeric(as.character(x)), y=y.rel, fill=Taxon))+
+    xlim(1995,2015)+
+    theme_cowplot()+
+    geom_area(position="stack")+
+    theme_classic()+
+    scale_fill_manual(values=c("blue","darkviolet"))+
+    labs(x="", y="")+
+    theme(axis.title = element_text(size=26), 
+          axis.text = element_text(size=26),
+          axis.line = element_line(size=0.7),
+          text = element_text(family="Times", size=0.9),
+          # Set margins to c(0,0,0,2) for wb, c(0,1,0,1) for cb.
+          plot.margin=unit(c(0,1,0,1), unit="cm"),
+          legend.position = "none")+
+    geom_hline(yintercept=1, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.75, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.5, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.25, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=1995, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2000, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2005, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2010, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2015, size = 0.2, alpha=0.25)
+
+} 
+
+saveRDS(plotFunc2(wb_sp, "Edibles","Inedibles"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/WBSP_inEdibles_Area_20201208.rds")
+saveRDS(plotFunc2(wb_es, "Edibles","Inedibles"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/WBES_inEdibles_Area_20201208.rds")
+saveRDS(plotFunc2(wb_ls, "Edibles","Inedibles"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/WBLS_inEdibles_Area_20201208.rds")
+saveRDS(plotFunc2(cb_sp, "Edibles","Inedibles"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/CBSP_inEdibles_Area_20201208.rds")
+saveRDS(plotFunc2(cb_es, "Edibles","Inedibles"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/CBES_inEdibles_Area_20201208.rds")
+saveRDS(plotFunc2(cb_ls, "Edibles","Inedibles"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/CBLS_inEdibles_Area_20201208.rds")
+
+```
+
+
+Edibles only
+```{r, warning=F}
+
+wbsp_ed <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_EdiblePhytos_WesternB_Spring_Updated_20201208.csv")
+wbes_ed <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_EdiblePhytos_WesternB_EarlySummer_Updated_20201208.csv")
+wbls_ed <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_EdiblePhytos_WesternB_LateSummer_Updated_20201208.csv")
+cbsp_ed <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_EdiblePhytos_CentralB_Spring_Updated_20201208.csv")
+cbes_ed <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_EdiblePhytos_CentralB_EarlySummer_Updated_20201208.csv")
+cbls_ed <- read.csv("~/Documents/OSU/Projects/LEPAS_Briland/Data/Phytoplankton/LEPAS_EdiblePhytos_CentralB_LateSummer_Updated_20201208.csv")
+
+plotFunc <- function(dat,taxon1,taxon2,taxon3,taxon4,taxon5){
+  
+  taxon1 <- dat[,taxon1]
+  taxon2 <- dat[,taxon2]
+  taxon3 <- dat[,taxon3]
+  taxon4 <- dat[,taxon4]
+  taxon5 <- dat[,taxon5]
+
+  fixDats <- function(dat,tax){
+    dat %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date),
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = decimal_date(Sample_date)) %>% 
+      select(Sample_ID:DOY,Time,everything()) %>% 
+      filter(Year < 2016)
+  }
+  
+  fd1 <- fixDats(dat,taxon1) %>% mutate(taxon1 = taxon1+min(taxon1[taxon1 > 0]))
+  fd2 <- fixDats(dat,taxon2) %>% mutate(taxon2 = taxon2+min(taxon2[taxon2 > 0]))
+  fd3 <- fixDats(dat,taxon3) %>% mutate(taxon3 = taxon3+min(taxon3[taxon3 > 0]))
+  fd4 <- fixDats(dat,taxon4) %>% mutate(taxon4 = taxon4+min(taxon4[taxon4 > 0]))
+  fd5 <- fixDats(dat,taxon5) %>% mutate(taxon5 = taxon5+min(taxon5[taxon5 > 0]))
+
+  # If enough data to fit logistic, use only nonzero data. If not, use y+min(y[y>0]), which will be logged later.
+  if(length(fd1$PresAbs[fd1$PresAbs==0]) >= 25){nz1 <- fd1 %>% filter(taxon1 > min(taxon1[taxon1 > 0]))}
+  else{nz1 <- fd1}
+  if(length(fd2$PresAbs[fd2$PresAbs==0]) >= 25){nz2 <- fd2 %>% filter(taxon2 > min(taxon2[taxon2 > 0]))}
+  else{nz2 <- fd2}
+  if(length(fd3$PresAbs[fd3$PresAbs==0]) >= 25){nz3 <- fd3 %>% filter(taxon3 > min(taxon3[taxon3 > 0]))}
+  else{nz3 <- fd3}
+  if(length(fd4$PresAbs[fd4$PresAbs==0]) >= 25){nz4 <- fd4 %>% filter(taxon4 > min(taxon4[taxon4 > 0]))}
+  else{nz4 <- fd4}
+  if(length(fd5$PresAbs[fd5$PresAbs==0]) >= 25){nz5 <- fd5 %>% filter(taxon5 > min(taxon5[taxon5 > 0]))}
+  else{nz5 <- fd5}
+  
+  # Insufficient df for s(DOY) in cb_sp Leptodora model. 
+  mod1 <- gam(log(taxon1) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz1)
+  mod2 <- gam(log(taxon2) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz2)
+  mod3 <- gam(log(taxon3) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz3)
+  mod4 <- gam(log(taxon4) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz4)
+  mod5 <- gam(log(taxon5) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz5)
+
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  gplot1 <- plot(mod1, n=1000)
+  gplot2 <- plot(mod2, n=1000)
+  gplot3 <- plot(mod3, n=1000)
+  gplot4 <- plot(mod4, n=1000)
+  gplot5 <- plot(mod5, n=1000)
+  invisible(dev.off())
+    
+  # Data from plot.gam() objects above, needed for ggplots.
+  PlotFit1 <- data.frame(x=as.factor(gplot1[[1]]$x), y=gplot1[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod1))),
+           Taxon = "Diatoms") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit2 <- data.frame(x=as.factor(gplot2[[1]]$x), y=gplot2[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod2))),
+           Taxon = "Chrysophytes") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit3 <- data.frame(x=as.factor(gplot3[[1]]$x), y=gplot3[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod3))),
+           Taxon = "Cryptophytes") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit4 <- data.frame(x=as.factor(gplot4[[1]]$x), y=gplot4[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod4))),
+           Taxon = "Green algae") %>% 
+    select(x,y.ts,Taxon)
+  PlotFit5 <- data.frame(x=as.factor(gplot5[[1]]$x), y=gplot5[[1]]$fit) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod5))),
+           Taxon = "Dinoflagellates") %>% 
+    select(x,y.ts,Taxon)
+  
+  taxa <- as.character(c("Diatoms","Chrysophytes","Cryptophytes","Green algae","Dinoflagellates"))
+  
+  PlotFits <- bind_rows(PlotFit1,PlotFit2,PlotFit3,PlotFit4,PlotFit5)
+  
+  pfList <- split(PlotFits, PlotFits$x)
+  pfList2 <- list()
+  nList <- c()
+  for(i in 1:length(pfList)){
+    pfList[[i]]$y.ts <- as.character(pfList[[i]]$y.ts)
+    y.ts <- as.character(rep("0", (6-nrow(pfList[[i]]))))
+    x <- as.character(rep(pfList[[i]]$x[1],(6-nrow(pfList[[i]]))))
+    Taxon <- as.character(pfList[[i]]$Taxon)
+    if(nrow(pfList[[i]]) == 6){
+      pfList2[[i]] <- pfList[[i]]
+    } 
+    else{
+          pfList2[[i]] <- pfList[[i]] %>% 
+            mutate_if(is.factor, as.character) %>% 
+            bind_rows(data.frame(x=x,
+                                 y.ts=y.ts,
+                                 Taxon=taxa[which(!taxa %in% pfList[[i]]$Taxon)][1:(6-nrow(pfList[[i]]))]))
+    }
+    nList[i] <- nrow(pfList2[[i]])
+  }
+  
+  PlotFits2 <- do.call(rbind, pfList2) %>% 
+    mutate(y.ts = as.numeric(y.ts),
+           x = round(as.numeric(as.character((x))))) %>% 
+    group_by(x, Taxon) %>%
+    summarise(n = sum(y.ts)) %>%
+    mutate(y.rel = n/sum(n),
+           Taxon = factor(Taxon, levels=taxa)) 
+
+  ggplot(PlotFits2, aes(x=as.numeric(as.character(x)), y=y.rel, fill=Taxon))+
+    xlim(1995,2015)+
+    theme_cowplot()+
+    geom_area(position="stack")+
+    scale_fill_manual(values=c("#ff7f00","black","#e41a1c","#4daf4a","#a65628"))+
+    labs(x="", y="")+
+    theme(axis.title = element_text(size=26), 
+          axis.text = element_text(size=26),
+          axis.line = element_line(size=0.7),
+          # Set margins to c(0,0,0,2) for wb, c(0,1,0,1) for cb.
+          plot.margin=unit(c(0,0,0,2), unit="cm"),
+          text = element_text(family="Times", size=0.9),
+          legend.position = "none")+
+    geom_hline(yintercept=1, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.75, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.5, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0.25, size = 0.2, alpha=0.25)+
+    geom_hline(yintercept=0, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=1995, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2000, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2005, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2010, size = 0.2, alpha=0.25)+
+    geom_vline(xintercept=2015, size = 0.2, alpha=0.25)
+    
+
+} 
+
+
+saveRDS(plotFunc(wbsp_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/WBSP_Main_EdOnly_Area_20201208.rds")
+saveRDS(plotFunc(wbes_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/WBES_Main_EdOnly_Area_20201208.rds")
+saveRDS(plotFunc(wbls_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/WBLS_Main_EdOnly_Area_20201208.rds")
+saveRDS(plotFunc(cbsp_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/CBSP_Main_EdOnly_Area_20201208.rds")
+saveRDS(plotFunc(cbes_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/CBES_Main_EdOnly_Area_20201208.rds")
+saveRDS(plotFunc(cbls_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates"),
+        file="~/Documents/OSU/Projects/LEPAS_Briland/Code/AssembleComposits/CBLS_Main_EdOnly_Area_20201208.rds")
+
+pdf("~/Documents/OSU/Projects/LEPAS_Briland/Figures/AreaPlots/Phytoplankton/WBLS_EdiblePhytos_20201208.pdf", height=4, width=7, family="Times")
+
+plotFunc(wbls_ed, "Diatoms","Cryptophytes","Chrysophytes","Green_algae","Dinoflagellates")
+
+dev.off()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

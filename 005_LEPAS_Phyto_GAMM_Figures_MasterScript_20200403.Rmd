@@ -1,0 +1,338 @@
+---
+title: "026_LEPAS_Phyto_GAMM_Figures_MasterScript_20200403"
+author: "DRO"
+date: "4/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(mgcv)
+library(scales)
+library(MuMIn)
+library(car)
+library(lubridate)
+library(GGally)
+library(metR)
+library(cowplot)
+library(ggpubr)
+library(gridExtra)
+
+# Western Basin
+wb_sp <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_WesternB_Spring_Updated_20201208.csv")
+wb_es <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_WesternB_EarlySummer_Updated_20201208.csv")
+wb_ls <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_WesternB_LateSummer_Updated_20201208.csv")
+
+# Central Basin
+cb_sp <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_CentralB_Spring_Updated_20201208.csv")
+cb_es <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_CentralB_EarlySummer_Updated_20201208.csv")
+cb_ls <- read.csv("~/Documents/Manuscripts/O'Donnell_etal_2022a/Data/LEPAS_Phytoplankton_CentralB_LateSummer_Updated_20201208.csv")
+
+
+```
+
+
+GAMM fits for individual taxa
+```{r}
+
+plotFunc <- function(dat,taxon1,taxon2,taxon3,taxon4,taxon5,taxon6){
+  
+  taxon1 <- dat[,taxon1]
+  taxon2 <- dat[,taxon2]
+  taxon3 <- dat[,taxon3]
+  taxon4 <- dat[,taxon4]
+  taxon5 <- dat[,taxon5]
+  taxon6 <- dat[,taxon6]
+
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date),
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = as.numeric(decimal_date(Sample_date)),
+             DOY = as.numeric(DOY)) %>% 
+      select(Sample_ID:DOY,Time,everything()) %>% 
+      filter(Year < 2016)
+  }
+  
+  pa1 <- fixDats(dat,taxon1) %>% mutate(taxon1 = taxon1+min(taxon1[taxon1 > 0]))
+  pa2 <- fixDats(dat,taxon2) %>% mutate(taxon2 = taxon2+min(taxon2[taxon2 > 0]))
+  pa3 <- fixDats(dat,taxon3) %>% mutate(taxon3 = taxon3+min(taxon3[taxon3 > 0]))
+  pa4 <- fixDats(dat,taxon4) %>% mutate(taxon4 = taxon4+min(taxon4[taxon4 > 0]))
+  pa5 <- fixDats(dat,taxon5) %>% mutate(taxon5 = taxon5+min(taxon5[taxon5 > 0]))
+  pa6 <- fixDats(dat,taxon6) %>% mutate(taxon6 = taxon6+min(taxon6[taxon6 > 0]))
+  
+  # If enough data to fit logistic, use only nonzero data. If not, use y+min(y[y>0]), which will be logged later.
+  if(length(pa1$PresAbs[pa1$PresAbs==0]) >= 25){nz1 <- pa1 %>% filter(taxon1 > min(taxon1[taxon1 > 0]))}
+  else{nz1 <- pa1}
+  if(length(pa2$PresAbs[pa2$PresAbs==0]) >= 25){nz2 <- pa2 %>% filter(taxon2 > min(taxon2[taxon2 > 0]))}
+  else{nz2 <- pa2}
+  if(length(pa3$PresAbs[pa3$PresAbs==0]) >= 25){nz3 <- pa3 %>% filter(taxon3 > min(taxon3[taxon3 > 0]))}
+  else{nz3 <- pa3}
+  if(length(pa4$PresAbs[pa4$PresAbs==0]) >= 25){nz4 <- pa4 %>% filter(taxon4 > min(taxon4[taxon4 > 0]))}
+  else{nz4 <- pa4}
+  if(length(pa5$PresAbs[pa5$PresAbs==0]) >= 25){nz5 <- pa5 %>% filter(taxon5 > min(taxon5[taxon5 > 0]))}
+  else{nz5 <- pa5}
+  if(length(pa6$PresAbs[pa6$PresAbs==0]) >= 25){nz6 <- pa6 %>% filter(taxon6 > min(taxon6[taxon6 > 0]))}
+  else{nz6 <- pa6}
+
+  binPlots <- function(pa){
+    if(length(pa$PresAbs[pa$PresAbs==0]) >= 25){
+      bin <- gam(PresAbs ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), family=binomial("logit"), data=pa, control=list(maxit=10000))
+      pdf(NULL)
+      dev.control(displaylist="enable")
+      binplot <- plot(bin, n=1000)
+      invisible(dev.off())
+      Px <- exp(binplot[[1]]$fit+mean(predict(bin)))/(1+exp(binplot[[1]]$fit+mean(predict(bin))))
+    }
+    else{
+      Px <- c(rep(1, 1000))
+    }
+    Px
+  }
+  
+  # Six GAMMs for six taxa. 
+  mod1 <- gam(log(taxon1) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz1, control=list(maxit=10000))
+  mod2 <- gam(log(taxon2) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz2, control=list(maxit=10000))
+  mod3 <- gam(log(taxon3) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz3, control=list(maxit=10000))
+  mod4 <- gam(log(taxon4) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz4, control=list(maxit=10000))
+  mod5 <- gam(log(taxon5) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz5, control=list(maxit=10000))
+# Not enough df for full mod6 if wb_sp.
+  mod6 <- gam(log(taxon6) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz6, control=list(maxit=10000))
+
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  gplot1 <- plot(mod1, n=1000)
+  gplot2 <- plot(mod2, n=1000)
+  gplot3 <- plot(mod3, n=1000)
+  gplot4 <- plot(mod4, n=1000)
+  gplot5 <- plot(mod5, n=1000)
+  gplot6 <- plot(mod6, n=1000)
+  invisible(dev.off())
+
+  # Data from plot.gam() objects above, needed for ggplots.
+  PlotFit1 <- data.frame(x=gplot1[[1]]$x, y=gplot1[[1]]$fit, se=gplot1[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod1))),
+           P1 = binPlots(pa1))
+  PlotFit2 <- data.frame(x=gplot2[[1]]$x, y=gplot2[[1]]$fit, se=gplot2[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod2))),
+           P2 = binPlots(pa2))
+  PlotFit3 <- data.frame(x=gplot3[[1]]$x, y=gplot3[[1]]$fit, se=gplot3[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod3))),
+           P3 = binPlots(pa3))
+  PlotFit4 <- data.frame(x=gplot4[[1]]$x, y=gplot4[[1]]$fit, se=gplot4[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod4))),
+           P4 = binPlots(pa4))
+  PlotFit5 <- data.frame(x=gplot5[[1]]$x, y=gplot5[[1]]$fit, se=gplot5[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod5))),
+           P5 = binPlots(pa5))
+  PlotFit6 <- data.frame(x=gplot6[[1]]$x, y=gplot6[[1]]$fit, se=gplot6[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod6))),
+           P6 = binPlots(pa6))
+  
+  colors <- c("Diatoms"="darkorange1","Chrysophytes"="goldenrod1","Cryptophytes"="black","Green algae"="#4daf4a",
+              "Cyanobacteria"="#377eb8","Dinoflagellates"="#a65628")
+  
+  # "#ff7f00"
+  # "#e41a1c"
+
+  ggplot()+
+    xlim(1995,2015)+
+    theme_cowplot()+
+    geom_path(PlotFit1, mapping=aes(x=x, y=y.ts, color="Diatoms"), size=PlotFit1$P1*5, alpha=0.5)+
+    geom_path(PlotFit1, mapping=aes(x=x, y=y.ts, color="Diatoms"), size=PlotFit1$P1*5, alpha=0.5)+
+    geom_path(PlotFit2, mapping=aes(x=x, y=y.ts, color="Chrysophytes"), size=PlotFit2$P2*5, alpha=0.5)+
+    geom_path(PlotFit2, mapping=aes(x=x, y=y.ts, color="Chrysophytes"), size=PlotFit2$P2*5, alpha=0.5)+
+    geom_path(PlotFit3, mapping=aes(x=x, y=y.ts, color="Cryptophytes"), size=PlotFit3$P3*5, alpha=0.5)+
+    geom_path(PlotFit3, mapping=aes(x=x, y=y.ts, color="Cryptophytes"), size=PlotFit3$P3*5, alpha=0.5)+
+    geom_path(PlotFit4, mapping=aes(x=x, y=y.ts, color="Green algae"), size=PlotFit4$P4*5, alpha=0.5)+
+    geom_path(PlotFit4, mapping=aes(x=x, y=y.ts, color="Green algae"), size=PlotFit4$P4*5, alpha=0.5)+
+    geom_path(PlotFit5, mapping=aes(x=x, y=y.ts, color="Cyanobacteria"), size=PlotFit5$P5*5, alpha=0.5)+
+    geom_path(PlotFit5, mapping=aes(x=x, y=y.ts, color="Cyanobacteria"), size=PlotFit5$P5*5, alpha=0.5)+
+    geom_path(PlotFit6, mapping=aes(x=x, y=y.ts, color="Dinoflagellates"), size=PlotFit6$P6*5, alpha=0.5)+
+    geom_path(PlotFit6, mapping=aes(x=x, y=y.ts, color="Dinoflagellates"), size=PlotFit6$P6*5, alpha=0.5)+
+    labs(x="", y="")+
+    scale_color_manual(values = colors)+
+    ### Use legend themes for wb only. Otherwise comment out and use theme(legend.position="none").
+    # guides(color = guide_legend(override.aes = list(size=5, alpha=1)))+
+    # theme(legend.position = c(0.02,0.1),
+    #       legend.text = element_text(size=19),
+    #       legend.direction = "horizontal",
+    #       legend.spacing.x = unit(0.3,"cm"),
+    #       legend.spacing.y = unit(0.3,"cm"),
+    #       legend.title = element_text(size=0))+
+    theme(legend.position = "none")+
+    ### Curve thickness legend. Use for all "b" panels.
+    geom_polygon(data=data.frame(polygon.x=c(2005.4,2014.7,2014.7), polygon.y=c(1.4e-5,1e-5,2.2e-5)),
+                 mapping=aes(x=polygon.x, y=polygon.y))+
+    geom_text(label="0", size=7, mapping=aes(x=2005, y=1.4e-5), family="Times")+
+    geom_text(label="1", size=7, mapping=aes(x=2015, y=1.4e-5), family="Times")+
+    geom_text(label="P(observed)", size=7, mapping=aes(x=2010.7, y=4.8e-5), family="Times")+
+    scale_y_log10(breaks=trans_breaks("log10", function(x) 10^x, n=5),
+                  labels=trans_format("log10", math_format(10^.x)), 
+                  limits=c(1e-5,1e2))+
+    annotation_logticks(side="l")+
+    theme(axis.title = element_text(size=26), 
+          axis.text = element_text(size=26),
+          axis.line = element_line(size=0.7),
+          plot.title = element_text(size=20, hjust=0.9),
+          # Set margins to c(0,0,0,2.01) for wb, c(0,1.01,0,1) for cb.
+          plot.margin=unit(c(0,1.01,0,1), unit="cm"),
+          text = element_text(family="Times", size=0.9),
+          panel.grid.major = element_line(colour = "gray", size = 0.2),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank())
+  
+} 
+
+
+saveRDS(plotFunc(wb_sp, "Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_Main_20201208.rds")
+saveRDS(plotFunc(wb_es, "Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_Main_20201208.rds")
+saveRDS(plotFunc(wb_ls, "Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_Main_20201208.rds")
+saveRDS(plotFunc(cb_sp, "Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_Main_20201208.rds")
+saveRDS(plotFunc(cb_es, "Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_Main_20201208.rds")
+saveRDS(plotFunc(cb_ls, "Diatoms","Chrysophytes","Cryptophytes","Green_algae","Cyanobacteria","Dinoflagellates"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_Main_20201208.rds")
+
+```
+
+
+GAMM fits for summed categories.
+```{r}
+
+plotFunc2 <- function(dat,taxon1,taxon2,taxon3){
+  
+  taxon1 <- dat[,taxon1]
+  taxon2 <- dat[,taxon2]
+  taxon3 <- dat[,taxon3]
+
+  fixDats <- function(dats,tax){
+    dats %>% 
+      mutate(PresAbs = ifelse(tax > 0, 1, 0),
+             Sample_date = as.POSIXct(paste(Year,substr(Sample_ID,5,6),substr(Sample_ID,7,8),sep="-")),
+             Sample_date = as.Date(Sample_date),
+             Site_consolidated = as.factor(Site_consolidated)) %>% 
+      arrange(Sample_date) %>% 
+      mutate(Time = as.numeric(decimal_date(Sample_date)),
+             DOY = as.numeric(DOY)) %>% 
+      select(Sample_ID:DOY,Time,everything()) %>% 
+      filter(Year < 2016)
+  }
+  
+  pa1 <- fixDats(dat,taxon1) %>% mutate(taxon1 = taxon1+min(taxon1[taxon1 > 0]))
+  pa2 <- fixDats(dat,taxon2) %>% mutate(taxon2 = taxon2+min(taxon2[taxon2 > 0]))
+  pa3 <- fixDats(dat,taxon3) %>% mutate(taxon3 = taxon3+min(taxon3[taxon3 > 0]))
+  
+  # If enough data to fit logistic, use only nonzero data. If not, use y+min(y[y>0]), which will be logged later.
+  if(length(pa1$PresAbs[pa1$PresAbs==0]) >= 25){nz1 <- pa1 %>% filter(taxon1 > min(taxon1[taxon1 > 0]))}
+  else{nz1 <- pa1}
+  if(length(pa2$PresAbs[pa2$PresAbs==0]) >= 25){nz2 <- pa2 %>% filter(taxon2 > min(taxon2[taxon2 > 0]))}
+  else{nz2 <- pa2}
+  if(length(pa3$PresAbs[pa3$PresAbs==0]) >= 25){nz3 <- pa3 %>% filter(taxon3 > min(taxon3[taxon3 > 0]))}
+  else{nz3 <- pa3}
+
+  binPlots <- function(pa){
+    if(length(pa$PresAbs[pa$PresAbs==0]) >= 25){
+      bin <- gam(PresAbs ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), family=binomial("logit"), data=pa, control=list(maxit=10000))
+      pdf(NULL)
+      dev.control(displaylist="enable")
+      binplot <- plot(bin, n=1000)
+      invisible(dev.off())
+      Px <- exp(binplot[[1]]$fit+mean(predict(bin)))/(1+exp(binplot[[1]]$fit+mean(predict(bin))))
+    }
+    else{
+      Px <- c(rep(1, 1000))
+    }
+    Px
+  }
+  
+  # Six GAMMs for six taxa. 
+  mod1 <- gam(log(taxon1) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz1, control=list(maxit=10000))
+  mod2 <- gam(log(taxon2) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz2, control=list(maxit=10000))
+  mod3 <- gam(log(taxon3) ~ s(Time,k=10)+ s(DOY)+ s(Site_consolidated,bs="re"), data=nz3, control=list(maxit=10000))
+  
+  # plot.gam() objects from which to pull data.
+  pdf(NULL)
+  dev.control(displaylist="enable")
+  gplot1 <- plot(mod1, n=1000)
+  gplot2 <- plot(mod2, n=1000)
+  gplot3 <- plot(mod3, n=1000)
+  invisible(dev.off())
+
+  # Data from plot.gam() objects above, needed for ggplots.
+  PlotFit1 <- data.frame(x=gplot1[[1]]$x, y=gplot1[[1]]$fit, se=gplot1[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod1))),
+           P1 = binPlots(pa1))
+  PlotFit2 <- data.frame(x=gplot2[[1]]$x, y=gplot2[[1]]$fit, se=gplot2[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod2))),
+           P2 = binPlots(pa2))
+  PlotFit3 <- data.frame(x=gplot3[[1]]$x, y=gplot3[[1]]$fit, se=gplot3[[1]]$se) %>% 
+    mutate(y.ts = exp(y+mean(predict(mod3))),
+           P3 = binPlots(pa3))
+  
+  colors2 <- c("Edibles"="blue", "Inedibles"="darkviolet", "Total phytoplankton"="chartreuse4")
+
+  ggplot()+
+    xlim(1995,2015)+
+    theme_cowplot()+
+    geom_path(PlotFit3, mapping=aes(x=x, y=y.ts, color="Total phytoplankton"), size=PlotFit3$P3*5, alpha=0.7, alpha=0.5)+
+    geom_path(PlotFit3, mapping=aes(x=x, y=y.ts, color="Total phytoplankton"), size=PlotFit3$P3*5, alpha=0.7, alpha=0.5)+
+    geom_path(PlotFit1, mapping=aes(x=x, y=y.ts, color="Edibles"), size=PlotFit1$P1*5, alpha=0.5)+
+    geom_path(PlotFit1, mapping=aes(x=x, y=y.ts, color="Edibles"), size=PlotFit1$P1*5, alpha=0.5)+
+    geom_path(PlotFit2, mapping=aes(x=x, y=y.ts, color="Inedibles"), size=PlotFit2$P2*5, alpha=0.5)+
+    geom_path(PlotFit2, mapping=aes(x=x, y=y.ts, color="Inedibles"), size=PlotFit2$P2*5, alpha=0.5)+
+    labs(x="", y="")+
+    scale_color_manual(values = colors2)+
+    # Use legend themes for wb only. Otherwise comment out and use theme(legend.position="none").
+    # guides(color = guide_legend(override.aes = list(size=5)))+
+    # theme(legend.position = c(0.02,0.08),
+    #       legend.text = element_text(size=19),
+    #       legend.direction = "horizontal",
+    #       legend.spacing.x = unit(0.3,"cm"),
+    #       legend.spacing.y = unit(0.3,"cm"),
+    #       legend.title = element_text(size=0))+
+    theme(legend.position = "none")+
+    scale_y_log10(breaks=trans_breaks("log10", function(x) 10^x, n=6),
+                  labels=trans_format("log10", math_format(10^.x)), 
+                  limits=c(1e-4,1e2))+
+    annotation_logticks(side="l")+
+    theme(axis.title = element_text(size=26), 
+          axis.text = element_text(size=26),
+          axis.line = element_line(size=0.7),
+          plot.title = element_text(size=20, hjust=0.9),
+          # Set margins to c(0,0,0,2.01) for wb, c(0,1.01,0,1) for cb.
+          plot.margin=unit(c(0,1.01,0,1), unit="cm"),
+          text = element_text(family="Times", size=0.9),
+          panel.grid.major = element_line(colour = "gray", size = 0.2),
+          panel.grid.minor = element_blank(),
+          panel.background = element_blank())
+
+}   
+
+
+saveRDS(plotFunc2(wb_sp, "Edibles","Inedibles","TotalPP"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBSP_inEdibles_20201208.rds")
+saveRDS(plotFunc2(wb_es, "Edibles","Inedibles","TotalPP"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBES_inEdibles_20201208.rds")
+saveRDS(plotFunc2(wb_ls, "Edibles","Inedibles","TotalPP"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/WBLS_inEdibles_20201208.rds")
+saveRDS(plotFunc2(cb_sp, "Edibles","Inedibles","TotalPP"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBSP_inEdibles_20201208.rds")
+saveRDS(plotFunc2(cb_es, "Edibles","Inedibles","TotalPP"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBES_inEdibles_20201208.rds")
+saveRDS(plotFunc2(cb_ls, "Edibles","Inedibles","TotalPP"),
+        file="~/Documents/Manuscripts/O'Donnell_etal_2022a/Code/AssembleComposits/CBLS_inEdibles_20201208.rds")
+
+```
+
